@@ -16,7 +16,7 @@ MARKER = ".interview-audio-review-run.json"
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="安全清理面试复盘的本次临时产物。")
-    result.add_argument("--run-dir", required=True, help="由 transcribe_chunked.py 创建的临时目录")
+    result.add_argument("--run-dir", required=True, help="由本 Skill 转写脚本创建的临时目录")
     group = result.add_mutually_exclusive_group(required=True)
     group.add_argument("--review", help="已完成并需要保留的最终 review.md")
     group.add_argument("--failed", action="store_true", help="本次运行失败且没有最终报告")

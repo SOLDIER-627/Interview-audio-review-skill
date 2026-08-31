@@ -1,17 +1,51 @@
 # 面试录音复盘 Skill
 
-这是一个面向真实面试录音的本地复盘 Skill。它把音频转写、转写纠错、问题与回答还原、逐题评价和推荐答案整合为一套流程，最终只保留一份可直接阅读的 `review.md`。
+一个可在本地运行的 Codex Skill，用于把面试录音整理成可核对、可练习的中文复盘报告。
 
-## 适合做什么
+它会完成：语音转写 → 转写纠错 → 问题/追问/回答还原 → 逐题评价 → 推荐回答 → 整场面试总结。默认只保留最终的 `review.md`，不会把录音、模型、原始转写或临时分片提交到仓库。
 
-- 复盘技术面试、业务面试或模拟面试录音；
-- 按时间顺序还原面试官的问题、追问和候选人的回答；
-- 修正 Whisper 的明显错字、断句和中英文技术术语；
-- 区分“候选人实际说了什么”和“更好的推荐回答”；
-- 从切题程度、表达结构、正确性与深度、证据与影响、沟通表现五个维度逐题评价；
-- 总结整场面试的优势、风险和优先练习计划。
+## 适用场景
 
-不适用于未经参与者授权的秘密录音、根据声音确认现实身份，或需要虚构候选人经历的场景。
+- 秋招、春招、社招、实习和模拟面试复盘；
+- 技术面、项目面、业务面、HR 面；
+- 中文为主、夹杂英文技术术语的双人面试；
+- 已有录音、视频或文字转写稿的问答整理。
+
+不适用于未经参与者授权的秘密录音、声纹身份确认，或要求虚构候选人经历的场景。
+
+## 最终产出
+
+输入一段录音，例如：
+
+```text
+interview.m4a
+```
+
+完整流程结束后只新增：
+
+```text
+interview.review.md
+```
+
+报告包含：
+
+- 处理方式、模型、耗时、费用和证据限制；
+- 带时间戳的问题、追问和候选人真实回答；
+- 高置信度转写纠错及不确定片段；
+- 切题程度、表达结构、正确性与深度、证据与影响、沟通表现评分；
+- 每道题做得好的地方、潜在问题和推荐回答；
+- 整场面试诊断、三个优先改进项和练习建议。
+
+## 支持的平台
+
+| 平台 | 默认转写后端 | 默认模型 | 说明 |
+|---|---|---|---|
+| macOS（Apple 芯片） | `mlx-whisper` | `whisper-large-v3-turbo` | 速度和中英混合识别效果较均衡 |
+| macOS（Intel） | `faster-whisper` | `small`（CPU） | 可运行，但速度取决于 CPU |
+| Windows（普通 CPU） | `faster-whisper` | `small` + INT8 | 无需独立安装系统 FFmpeg |
+| Windows（NVIDIA GPU） | `faster-whisper` | `turbo` + FP16 | 需正确安装 CUDA 12 和 cuDNN 9 |
+
+两条路线都在本机转写，不调用按分钟收费的语音识别 API。首次安装依赖和下载模型需要网络，之后可使用本地缓存。
 
 ## 目录结构
 
@@ -27,30 +61,17 @@ interview-audio-review-skill/
     └── scripts/
 ```
 
-仓库不包含 `.venv`、Whisper 模型、面试录音、转写中间文件和复盘结果。这些内容均由使用者在本地创建，并已写入 `.gitignore`。
+仓库不包含 `.venv`、模型、录音、转写结果或个人资料；这些内容均已加入 `.gitignore`。
 
-## 安装
+## macOS 安装与运行
 
-### 1. 安装系统依赖
-
-需要 Apple Silicon Mac、Homebrew、原生 arm64 Python 3.10 或更高版本，以及 `ffmpeg`：
+### 1. 安装 Python 和 FFmpeg
 
 ```bash
 brew install python ffmpeg
 ```
 
-确认当前终端使用 arm64：
-
-```bash
-uname -m
-python3 -c "import platform; print(platform.machine())"
-```
-
-两条命令都应输出 `arm64`。
-
-### 2. 创建虚拟环境并安装 Python 依赖
-
-在仓库根目录执行：
+建议使用 Python 3.11 或 3.12。创建独立虚拟环境：
 
 ```bash
 cd interview-audio-review-skill
@@ -60,175 +81,181 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-默认依赖只有 `mlx-whisper`，其余运行包会由它自动安装。不要把生成的 `.venv` 提交到 Git。
+`requirements.txt` 会根据机器架构选择依赖：Apple 芯片安装 `mlx-whisper`，Intel Mac 安装 `faster-whisper`。
 
-### 3. 下载本地 Whisper 模型
+### 2. Apple 芯片下载模型
 
-推荐把模型下载到仓库根目录的 `models/`。该目录已被 Git 忽略：
+推荐把模型放在仓库根目录的 `models/`，该目录不会进入 Git：
 
 ```bash
-source .venv/bin/activate
 hf download mlx-community/whisper-large-v3-turbo \
   --local-dir models/whisper-large-v3-turbo
 ```
 
-模型约占 1.5 GB。下载完成后的结构为：
-
-```text
-interview-audio-review-skill/
-└── models/
-    └── whisper-large-v3-turbo/
-        ├── config.json
-        └── weights.safetensors
-```
-
-脚本会从 Skill 目录逐级向上查找 `models/whisper-large-v3-turbo`。也可以把模型放在仓库的上级目录共享；如果始终找不到本地模型，`mlx-whisper` 会使用 Hugging Face 仓库标识下载到本机缓存。
-
-### 4. 检查环境
-
-在仓库根目录执行：
+检查环境：
 
 ```bash
-source .venv/bin/activate
 python interview-audio-review/scripts/transcribe_local.py --check
 ```
 
-预期看到：
+长录音的独立转写测试：
 
-```text
-系统架构: arm64
-ffmpeg: 已安装
-mlx-whisper: 已安装
+```bash
+python interview-audio-review/scripts/transcribe_chunked.py \
+  "/path/to/interview.m4a" \
+  --language zh \
+  --initial-prompt "公司名、岗位名、项目名、Kubernetes、Redis"
 ```
 
-### 5. 让 Codex 发现这个 Skill
+### 3. Intel Mac 运行
 
-可以直接把 `interview-audio-review/` 目录交给 Codex，或者在本机 Skill 目录创建符号链接：
+Intel Mac 使用跨平台脚本；模型会在第一次运行时自动下载到 Hugging Face 本地缓存：
+
+```bash
+python interview-audio-review/scripts/transcribe_faster_whisper.py --check
+python interview-audio-review/scripts/transcribe_faster_whisper.py \
+  "/path/to/interview.m4a" \
+  --output "/tmp/interview.raw-transcript.json" \
+  --language zh
+```
+
+## Windows 安装与运行
+
+以下命令在 PowerShell 中执行。
+
+### 1. 安装 Python
+
+建议从 [Python 官网](https://www.python.org/downloads/windows/) 安装 Python 3.11 或 3.12，并勾选 **Add Python to PATH**。也可以使用 Windows 包管理器：
+
+```powershell
+winget install --exact --id Python.Python.3.12
+```
+
+`faster-whisper` 通过 PyAV 解码音频，一般无需单独安装系统 FFmpeg。若还要手工裁剪、转码或检查音频，可选安装：
+
+```powershell
+winget install --exact --id Gyan.FFmpeg
+```
+
+### 2. 创建虚拟环境并安装依赖
+
+```powershell
+cd interview-audio-review-skill
+py -3.12 -m venv .venv
+Set-ExecutionPolicy -Scope Process Bypass
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+检查环境：
+
+```powershell
+python interview-audio-review\scripts\transcribe_faster_whisper.py --check
+```
+
+### 3. CPU 运行（默认、无需额外配置）
+
+```powershell
+python interview-audio-review\scripts\transcribe_faster_whisper.py `
+  "D:\recordings\interview.m4a" `
+  --output "$env:TEMP\interview.raw-transcript.json" `
+  --language zh
+```
+
+CPU 默认使用 `small` 模型和 INT8，以兼顾速度与内存。若设备性能充足并更看重准确率，可添加 `--model medium` 或 `--model turbo`，但耗时和内存占用会增加。
+
+### 4. NVIDIA GPU 运行（可选）
+
+安装与 `faster-whisper` 当前版本兼容的 CUDA 12 和 cuDNN 9，并确保相关动态库在 `PATH` 中。然后执行：
+
+```powershell
+python interview-audio-review\scripts\transcribe_faster_whisper.py `
+  "D:\recordings\interview.m4a" `
+  --output "$env:TEMP\interview.raw-transcript.json" `
+  --language zh `
+  --device cuda `
+  --model turbo `
+  --compute-type float16
+```
+
+GPU 配置以 [`faster-whisper` 官方说明](https://github.com/SYSTRAN/faster-whisper#gpu)为准。若使用 `--device auto` 且 GPU 环境不可用，脚本会自动回退到 CPU。
+
+## 让 Codex 使用这个 Skill
+
+最简单的方式是在 Codex 中直接提供 Skill 目录和录音路径：
+
+```text
+请使用 interview-audio-review Skill 完整复盘这段面试录音。
+Skill 目录：<仓库路径>/interview-audio-review
+录音：<录音文件路径>
+要求本地处理，完成后只保留 review.md。
+```
+
+也可以安装到个人 Skill 目录。
+
+macOS：
 
 ```bash
 mkdir -p ~/.codex/skills
 ln -s "$(pwd)/interview-audio-review" ~/.codex/skills/interview-audio-review
 ```
 
-如果目标链接已经存在，先确认它指向哪里，不要直接覆盖。
+Windows PowerShell：
 
-## 运行需要什么
-
-### 必需环境
-
-- Apple Silicon Mac（M1/M2/M3/M4 等）；
-- 原生 arm64 Python 3.10 或更高版本；
-- `ffmpeg` 和 `ffprobe`；
-- Python 包 `mlx-whisper`；
-- 本地 `whisper-large-v3-turbo` 模型。
-
-仓库不会携带虚拟环境和大模型。按照上面的安装命令完成后，转写在本机执行，不产生语音转写 API 费用。
-
-### 输入材料
-
-至少提供以下一种材料：
-
-- 面试录音，如 `.m4a`、`.mp3`、`.wav`；
-- 包含面试声音的视频；
-- 已有的文字转写稿。
-
-可选材料能提高分析质量：
-
-- 应聘岗位说明；
-- 个人简历；
-- 项目说明；
-- 公司、产品、姓名和中英文技术术语表。
-
-只有录音中或用户材料里能够确认的经历才会进入推荐答案。缺少的数据使用 `[补充真实指标]` 等占位符，不会自动编造。
-
-## 如何使用
-
-在 Codex 中提供录音路径并要求使用本 Skill，例如：
-
-```text
-请使用 interview-audio-review Skill 完整复盘这段面试录音：
-/path/to/interview.m4a
-要求本地处理，不产生额外费用，完成后只保留 review.md。
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.codex\skills"
+Copy-Item ".\interview-audio-review" `
+  "$env:USERPROFILE\.codex\skills\interview-audio-review" `
+  -Recurse
 ```
 
-也可以单独验证长录音转写脚本：
+如果目标目录已经存在，应先确认内容，不要直接覆盖。复制安装后，仓库更新不会自动同步，需要重新复制。
 
-```bash
-source .venv/bin/activate
-python interview-audio-review/scripts/transcribe_chunked.py \
-  "/path/to/interview.m4a" \
-  --language zh \
-  --initial-prompt "公司名、岗位名、Skill、Agent、MCP"
-```
+## Skill 的完整处理流程
 
-这个命令只完成本地分片转写并输出临时运行目录；完整的纠错、问答评价、推荐答案和清理流程由 Codex 按 `SKILL.md` 执行。
+1. 检查输入、平台、依赖和可用模型；
+2. 选择 macOS MLX 或 Windows/Intel Mac 的 `faster-whisper` 路线；
+3. 在系统临时目录完成转写、纠错、角色推断和问答还原；
+4. 逐题评价候选人的真实回答，生成不虚构经历的推荐回答；
+5. 验证报告结构；
+6. 清理本次音频分片、JSON 和草稿，只保留最终 `review.md`。
 
-Skill 会自动完成：
+手工运行转写脚本只会生成标准化 JSON；完整的纠错、评价、推荐答案与清理由 Codex 按 `SKILL.md` 执行。
 
-1. 检查录音时长、格式、声道和本机环境；
-2. 对长录音按十分钟分片，保留十秒重叠；
-3. 使用本地 MLX Whisper 转写并合并绝对时间轴；
-4. 检测重复短语、长时间短句等 Whisper 幻觉，可疑分片缩短后重试一次；
-5. 根据对话语义推断面试官和候选人；
-6. 纠正转写并一一还原问题、追问和回答；
-7. 逐题评价并生成忠于真实经历的推荐答案；
-8. 验证最终报告并清理本次音频分片、JSON 和草稿。
+## 模型、速度与费用
 
-## 最终产出
+- 本地路线不产生语音识别 API 费用；会消耗本机算力、存储和首次下载流量。
+- 速度取决于芯片、内存、模型大小、录音质量、重叠说话和是否发生局部重试。
+- “一小时录音约二十分钟完成全流程”是较新设备热运行时的优化目标，不是固定承诺。
+- Apple 芯片优先使用 MLX Turbo；Windows CPU 优先使用 `small`；Windows NVIDIA GPU 优先使用 `turbo`。
+- 音质差或技术术语密集时，建议提供公司名、项目名和术语表作为识别提示。
 
-假设输入是：
+## 隐私与事实边界
 
-```text
-面试录音.m4a
-```
+- 默认不上传录音，不调用付费转写 API；
+- 原始录音不会被修改或删除；
+- 听不清的内容会标记为 `[听不清]`、`[多人重叠]` 或候选词，不会静默补写；
+- 推荐回答只能基于录音和用户材料中的真实经历，缺失信息用占位符提示补充；
+- 使用录音前请确认符合当地法律、公司规定并获得必要授权。
 
-最终只新增：
+## 不要提交到 GitHub
 
-```text
-面试录音.review.md
-```
-
-报告包含：
-
-- 处理方式、模型、耗时、费用和证据限制；
-- 带时间戳的面试问题和忠实回答；
-- 候选人可能想表达的核心意思；
-- 五维逐题评分及评分依据；
-- 做得好的地方和面试官可能产生的顾虑；
-- 可以直接用于下次面试的推荐回答；
-- 实质性转写纠错记录和不确定片段；
-- 跨问题诊断、三个最高优先级改进项和练习计划。
-
-原始录音和本地模型不会被修改或删除。音频切片、原始转写 JSON、纠错草稿和分析草稿只存在于本次系统临时目录；成功或失败结束后都会清理。
-
-## 性能与费用
-
-- 默认完全在本机运行，不上传录音；
-- 不调用按分钟收费的语音识别 API；
-- 首次模型下载需要网络，模型已经存在时可以离线转写；
-- 在 M3、16 GB 级别设备上，以约一小时录音在二十分钟左右完成为优化目标，但噪声、多人重叠和局部重试会增加时间；
-- 报告会记录真实耗时，不承诺固定完成时间。
-
-## GitHub 提交边界
-
-建议提交：
-
-- `README.md`、`requirements.txt` 和 `.gitignore`；
-- `interview-audio-review/SKILL.md`；
-- `agents/`、`references/` 和 `scripts/`。
-
-不要提交：
-
-- `.venv/`；
-- `models/` 和模型权重；
-- 面试录音、视频或个人简历；
-- 原始转写、纠错稿、`review.md` 和临时分片；
-- Hugging Face Token、`.env` 或其他凭证。
+- `.venv/` 和 Python 缓存；
+- `models/`、Hugging Face 缓存和模型权重；
+- 面试录音、视频、简历和个人资料；
+- 原始转写、纠错稿、最终复盘和临时音频片段；
+- Token、`.env` 或其他凭证。
 
 ## 关键文件
 
-- `interview-audio-review/SKILL.md`：完整处理规则；
-- `interview-audio-review/scripts/transcribe_chunked.py`：长录音分片、幻觉检测、局部重试和合并；
-- `interview-audio-review/scripts/transcribe_local.py`：短录音本地转写；
-- `interview-audio-review/scripts/cleanup_run.py`：验证报告后安全清理本次中间产物；
+- `interview-audio-review/SKILL.md`：完整工作流和安全边界；
+- `interview-audio-review/scripts/transcribe_chunked.py`：Apple 芯片长录音分片转写；
+- `interview-audio-review/scripts/transcribe_local.py`：Apple 芯片短录音转写；
+- `interview-audio-review/scripts/transcribe_faster_whisper.py`：Windows 和 Intel Mac 本地转写；
+- `interview-audio-review/scripts/cleanup_run.py`：验证最终报告后安全清理临时目录；
 - `interview-audio-review/references/report-format.md`：最终报告结构。
+
+## 许可证与第三方组件
+
+提交 GitHub 前请为仓库选择合适的许可证，并分别遵守 `mlx-whisper`、`faster-whisper`、Whisper 模型及其他可选组件的许可证和模型条款。

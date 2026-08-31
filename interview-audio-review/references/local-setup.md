@@ -1,139 +1,154 @@
 # 本地安装与性能目标
 
-本方案适用于 Apple 芯片 Mac，默认不调用任何付费 API。首次安装和模型下载需要联网；模型缓存完成后可离线转写。
+默认使用本地免费路线。首次安装依赖和下载模型需要联网；模型缓存后可离线转写。不要把虚拟环境、模型、录音、Token 或转写结果提交到版本库。
 
-## 最小安装
+## 平台选择
 
-需要：
+| 环境 | 后端 | 推荐配置 |
+|---|---|---|
+| Apple 芯片 Mac | `mlx-whisper` | `whisper-large-v3-turbo` |
+| Intel Mac | `faster-whisper` | CPU `small` + INT8 |
+| Windows CPU | `faster-whisper` | `small` + INT8 |
+| Windows NVIDIA GPU | `faster-whisper` | `turbo` + FP16 |
 
-- Homebrew；
-- 原生 arm64 Python 3.10 或更高版本；
-- `ffmpeg`；
-- Python 包 `mlx-whisper`。
+建议使用 Python 3.11 或 3.12。根目录 `requirements.txt` 带有平台条件，会安装当前平台所需后端。
 
-在仓库根目录执行。虚拟环境位于仓库根目录，不进入 `interview-audio-review/` Skill 包，也不得提交到 Git：
+## macOS：Apple 芯片
 
 ```bash
-brew install ffmpeg
+brew install python ffmpeg
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-```
-
-验证环境：
-
-```bash
+hf download mlx-community/whisper-large-v3-turbo \
+  --local-dir models/whisper-large-v3-turbo
 python interview-audio-review/scripts/transcribe_local.py --check
 ```
 
-推荐在仓库根目录执行下面的命令下载模型；`models/` 已通过 `.gitignore` 排除：
+模型目录默认位于仓库根目录：
 
-```bash
-hf download mlx-community/whisper-large-v3-turbo \
-  --local-dir models/whisper-large-v3-turbo
+```text
+models/whisper-large-v3-turbo/
 ```
 
-脚本会从 Skill 目录逐级向上查找 `models/whisper-large-v3-turbo`。找不到本地模型时，脚本才会使用 `mlx-community/whisper-large-v3-turbo` 仓库标识并由 `mlx-whisper` 下载到本机缓存。模型下载时间和占用空间不计入二十分钟热运行目标。
+脚本会从自身位置逐级向上查找该相对目录。需要使用其他目录时，通过 `--model "<模型目录>"` 显式传入；文档和代码中不得写入某个使用者的绝对路径。
 
-## 默认执行：长录音
+十五分钟以上录音使用：
 
 ```bash
-source .venv/bin/activate
 python interview-audio-review/scripts/transcribe_chunked.py \
   "/path/to/interview.m4a" \
   --language zh \
-  --initial-prompt "公司名、岗位名、Kubernetes、RAG、项目专有名词"
+  --initial-prompt "公司名、岗位名、项目名、专业术语"
 ```
 
-脚本会输出 `RUN_DIR` 和临时合并 JSON 路径。把纠错草稿和分析草稿也写进该 `RUN_DIR`，最终只把 `<录音名>.review.md` 写入录音目录。
+脚本会创建带安全标记的系统临时目录，输出 `RUN_DIR` 和合并 JSON 路径。最终报告完成后，由 `cleanup_run.py` 删除该目录。
 
-需要显式指定已经移动的本地模型时使用：
+十五分钟及以下可使用 `transcribe_local.py`，但输出也要放进本次临时目录。
+
+## macOS：Intel 芯片
+
+Intel Mac 使用 `faster-whisper`：
 
 ```bash
-python interview-audio-review/scripts/transcribe_chunked.py \
+brew install python
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python interview-audio-review/scripts/transcribe_faster_whisper.py --check
+python interview-audio-review/scripts/transcribe_faster_whisper.py \
   "/path/to/interview.m4a" \
-  --model "/Users/Admin/Desktop/intervew/models/whisper-large-v3-turbo" \
   --language zh
 ```
 
-十五分钟及以下的短录音仍可使用 `transcribe_local.py`，但 `--output` 必须指向本次临时目录。
+未指定 `--output` 时，脚本会在系统临时目录创建可安全清理的运行目录。CPU 默认使用 `small` + INT8；可用 `--model medium` 或 `--model turbo` 提高准确率，但会增加耗时和内存。
 
-中文面试中夹杂英文术语时仍使用 `--language zh`。整段主要语言不确定时使用 `--language auto`，但自动检测可能稍慢。
+## Windows：CPU
+
+在 PowerShell 中执行：
+
+```powershell
+py -3.12 -m venv .venv
+Set-ExecutionPolicy -Scope Process Bypass
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python interview-audio-review\scripts\transcribe_faster_whisper.py --check
+python interview-audio-review\scripts\transcribe_faster_whisper.py `
+  "D:\recordings\interview.m4a" `
+  --language zh
+```
+
+`faster-whisper` 使用 PyAV 解码音频，通常不要求系统单独安装 FFmpeg。若需要手工裁剪、转码或使用 `ffprobe` 检查媒体，再安装 FFmpeg。
+
+模型在第一次运行时自动下载到 Hugging Face 缓存。CPU 默认 `small` + INT8，是速度优先设置；报告必须披露具体模型。
+
+## Windows：NVIDIA GPU（可选）
+
+GPU 路线需要与当前 CTranslate2 兼容的 NVIDIA 运行库。以 `faster-whisper` 官方文档为准；当前主线要求 CUDA 12 和 cuDNN 9。
+
+```powershell
+python interview-audio-review\scripts\transcribe_faster_whisper.py `
+  "D:\recordings\interview.m4a" `
+  --language zh `
+  --device cuda `
+  --model turbo `
+  --compute-type float16
+```
+
+默认 `--device auto`。检测到 CUDA 但初始化失败时，脚本回退 CPU；显式指定 `--device cuda` 时失败应直接报告，不静默改变用户选择。
 
 ## 五分钟基准
 
-先使用 `ffmpeg` 截取一段有代表性的五分钟样本，不覆盖原录音：
+完整处理长录音前，选择包含双方对话的代表性五分钟片段完成一次转写，记录：模型、设备、计算精度、音频时长、耗时和实时系数。
 
-```bash
-ffmpeg -ss 600 -i "/path/to/interview.m4a" -t 300 -c copy "/tmp/interview-benchmark.m4a"
-python interview-audio-review/scripts/transcribe_local.py \
-  "/tmp/interview-benchmark.m4a" \
-  --output "/tmp/interview-benchmark.json" \
-  --language zh
-```
+若目标是一小时录音约二十分钟完成全部流程，语音识别实时系数应尽量不高于 `0.15`，为纠错和报告生成预留时间。若超出目标，按顺序处理：
 
-脚本会输出音频时长、处理耗时和实时系数。对一小时录音的完整二十分钟目标，建议语音识别阶段实时系数不高于约 `0.15`。
+1. 关闭逐词时间戳；
+2. 确认当前平台使用正确后端；
+3. Windows/Intel Mac CPU 改用 `small`；
+4. Apple 芯片改用较小的 MLX 模型；
+5. 披露准确率与耗时取舍，不承诺固定完成时间。
 
-基准音频和 JSON 也必须放入本次临时目录，不能留在录音目录。
-
-如果太慢，先确认 Python 是 arm64 原生版本，再关闭逐词时间戳；仍然太慢时才使用更小模型：
-
-```bash
-python interview-audio-review/scripts/transcribe_local.py \
-  "/path/to/interview.m4a" \
-  --output "/path/to/interview.raw-transcript.json" \
-  --language zh \
-  --model mlx-community/whisper-small-mlx
-```
-
-更小模型速度更快，但技术词、中英混说和远场语音准确率可能下降。必须在报告中披露模型变化。
+首次模型下载和依赖安装不计入热运行性能。
 
 ## 可选说话人分离
 
-仅当快速角色推断明显失败时安装：
+只有角色推断明显失败时再安装：
 
 ```bash
-source .venv/bin/activate
 python -m pip install pyannote.audio
 ```
 
-随后需要：
+使用模型可能需要免费 Hugging Face 账户、接受模型条款和只读 Token。Token 只能保存在本地环境，不得写入 Skill、脚本、报告或版本库。
 
-1. 注册免费的 Hugging Face 账户；
-2. 接受 `pyannote/speaker-diarization-community-1` 的使用条款；
-3. 创建只读访问令牌；
-4. 首次联网下载模型，之后在本地运行。
+## 成本与隐私边界
 
-访问令牌只保存在本地环境中，不得写入 Skill、脚本、报告或版本库。pyannote 是可选增强项，不应成为清晰双人面试的固定依赖。
+- 本地依赖和开源模型不按录音时长收费，但会消耗电量、存储和下载流量；
+- OpenAI 或其他按量计费的转写 API 不属于默认路线；
+- 未经用户明确授权，不上传录音；
+- 免费额度、试用金或需要绑定支付方式的云服务，不应被描述为稳定免费方案。
 
-## 成本与云端边界
+## 清理
 
-- 本地 `mlx-whisper`、开源 pyannote 模型和 `ffmpeg` 不按录音时长收费。
-- 运行会消耗本机电量、存储和网络下载流量，但不产生转写 API 费用。
-- OpenAI 等按分钟或按令牌计费的转写 API 不属于本 Skill 的默认免费路线。
-- 云端服务即使宣称有免费额度，也必须在每次使用前重新确认额度、隐私和是否需要绑定支付方式。
+报告验证完成后运行：
 
-## 性能说明
-
-二十分钟是 M3、16 GB 级别 Apple 芯片设备处理约一小时清晰双人录音的优化目标，不是保证值。噪声、多人重叠、重复二次转写、完整说话人分离以及超长复盘都会增加耗时。报告必须写真实耗时，不得为了达标省略质量问题。
-
-## 完成后的清理
-
-最终报告通过检查后执行：
+macOS：
 
 ```bash
 python interview-audio-review/scripts/cleanup_run.py \
-  --run-dir "/private/tmp/interview-audio-review-本次随机目录" \
+  --run-dir "/tmp/interview-audio-review-本次随机目录" \
   --review "/path/to/interview.review.md"
 ```
 
-如果本次失败、没有报告，也要清理本次临时目录：
+Windows PowerShell：
 
-```bash
-python interview-audio-review/scripts/cleanup_run.py \
-  --run-dir "/private/tmp/interview-audio-review-本次随机目录" \
-  --failed
+```powershell
+python interview-audio-review\scripts\cleanup_run.py `
+  --run-dir "$env:TEMP\interview-audio-review-本次随机目录" `
+  --review "D:\recordings\interview.review.md"
 ```
 
-清理脚本只接受带运行标记的专用临时目录，不删除原始录音、本地模型、最终报告或录音目录中以前已有的文件。
+若失败且没有报告，改用 `--failed`。清理脚本只接受系统临时目录中、名称和标记都符合规则的本次目录，不删除原录音、模型、最终报告或其他用户文件。

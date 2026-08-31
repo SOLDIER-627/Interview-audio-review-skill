@@ -13,12 +13,14 @@ description: 使用零新增费用、本地优先的方式解析面试录音或�
 
 默认不得产生任何新增 API 或云服务费用。不得自行推定用户同意把录音上传到云端或调用付费接口。只有用户已经明确授权上传并确认服务当前免费时，才能使用云端免费路线；免费额度不明确、可能过期或要求绑定付费方式时，回退到本地处理。
 
-收到音频或视频后，先检查时长、格式、声道、设备芯片、内存和当前环境可用的转写工具。选择或配置转写方案前，阅读 [转写方案选择](references/transcription-routing.md)。首次配置本地环境时，阅读 [本地安装与性能目标](references/local-setup.md)。
+收到音频或视频后，先检查时长、格式、声道、操作系统、芯片或 GPU、内存和当前环境可用的转写工具。选择或配置转写方案前，阅读 [转写方案选择](references/transcription-routing.md)。首次配置本地环境时，阅读 [本地安装与性能目标](references/local-setup.md)。
 
 ## 默认运行策略
 
-- Apple 芯片 Mac 默认使用 `mlx-whisper`。脚本从 Skill 目录逐级向上查找 `models/whisper-large-v3-turbo`，以兼容外层项目包装；本地模型不存在时才使用 `mlx-community/whisper-large-v3-turbo` 仓库标识。不调用 OpenAI 或其他付费转写 API。
-- 超过十五分钟的录音默认运行 `scripts/transcribe_chunked.py`：十分钟分片、十秒重叠并合并绝对时间轴。不要先对长录音做一次整段识别。
+- Apple 芯片 Mac 默认使用 `mlx-whisper`。脚本从 Skill 目录逐级向上查找 `models/whisper-large-v3-turbo`；本地模型不存在时才使用 `mlx-community/whisper-large-v3-turbo` 仓库标识。
+- Windows 和 Intel Mac 默认使用 `scripts/transcribe_faster_whisper.py`。普通 CPU 使用 `small` + INT8；可用 NVIDIA GPU 使用 `turbo` + FP16。`faster-whisper` 默认启用 VAD，模型首次运行时下载到本地缓存。
+- Apple 芯片上超过十五分钟的录音默认运行 `scripts/transcribe_chunked.py`：十分钟分片、十秒重叠并合并绝对时间轴。Windows 和 Intel Mac 使用跨平台脚本直接转写，并对重复或异常时间段做局部复核。
+- 所有本地路线都不得调用 OpenAI 或其他付费转写 API。
 - 脚本发现连续重复、长时间短句或内部循环文本时，只把可疑分片改为五分钟小片重试一次。重试后仍异常就标记不可靠范围，不得无限重试或把重复文本当作录音事实。
 - 清晰的双人面试默认采用“带时间戳转写 + 对话语义推断角色”的快速路线；只有角色混淆、插话或多人对话明显影响问答还原时，才启用本地说话人分离。
 - 以一小时录音在约二十分钟内完成转写、纠错、问答还原和复盘为性能目标。该目标只适用于依赖和模型已下载的热运行，且必须根据实际设备与录音质量报告真实耗时，不得保证固定完成时间。
@@ -29,16 +31,16 @@ description: 使用零新增费用、本地优先的方式解析面试录音或�
 
 1. 创建隔离的临时运行目录
    - 不修改原始录音。
-   - 使用 `scripts/transcribe_chunked.py` 自动创建名称以 `interview-audio-review-` 开头的系统临时目录。
+   - Apple 芯片长录音由 `scripts/transcribe_chunked.py` 创建系统临时目录；Windows 和 Intel Mac 调用 `scripts/transcribe_faster_whisper.py` 时省略 `--output`，由脚本创建同样带清理标记的临时目录。
    - 音频分片、原始转写、合并转写、纠错草稿和分析草稿全部放入该目录。不得把中间 JSON、分片音频或纠错稿写到原录音目录。
    - 在最终报告完成前，临时转写是事实证据层；记录源文件名、处理方式、处理时间和分段时间戳。
 
 2. 转写并区分说话人
-   - 长录音运行 `scripts/transcribe_chunked.py`；十五分钟及以下的短录音可以运行 `scripts/transcribe_local.py`，但输出仍放在本次临时目录。
+   - Apple 芯片长录音运行 `scripts/transcribe_chunked.py`，十五分钟及以下可运行 `scripts/transcribe_local.py`；Windows 和 Intel Mac 运行 `scripts/transcribe_faster_whisper.py`。所有输出都必须位于本次临时目录。
    - 先根据问题句式、回答长度、上下文和轮次推断面试官与候选人；不要为了说话人标签默认运行较重的分离模型。
    - 只有快速路线不能可靠还原问答时，才使用本地 `pyannote.audio` 的开源模型进行说话人分离。
    - 使用姓名、缩写、技术名词、公司名、中英混说词汇和行业词汇作为识别提示。
-   - 分片必须保留绝对时间轴；重叠区按中点裁切去重，不得简单拼接导致重复问答。
+   - Apple 芯片分片必须保留绝对时间轴；重叠区按中点裁切去重，不得简单拼接导致重复问答。跨平台脚本的直接转写必须启用 VAD，并检查长静音附近的异常文本。
    - 可疑片段只重试一次。两次结果都不可靠时在最终报告中标记时间范围和原因，不根据上下文补写。
    - 听不清时不得补写。使用 `[听不清]`、`[多人重叠]` 或 `可能是：Kubernetes` 等明确标记。
 
