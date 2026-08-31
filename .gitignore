@@ -1,0 +1,44 @@
+# macOS
+.DS_Store
+
+# Python
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local models and caches
+models/
+.cache/
+.huggingface/
+*.safetensors
+*.gguf
+pytorch_model*.bin
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.token
+
+# Interview recordings and videos
+*.m4a
+*.mp3
+*.wav
+*.aac
+*.flac
+*.mp4
+*.mov
+*.mkv
+
+# Generated transcripts and reports
+*.raw-transcript*.json
+*.corrected-transcript.md
+*.review.md
+
+# Temporary processing artifacts
+interview-audio-review-*/
+*.part-*.m4a
+*.part-*.wav
