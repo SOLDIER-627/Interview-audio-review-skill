@@ -48,7 +48,7 @@ def validate_review(review: Path, run_dir: Path) -> None:
     if review == run_dir or run_dir in review.parents:
         raise SystemExit("拒绝清理：最终 review 不能放在将被删除的临时目录中")
     text = review.read_text(encoding="utf-8")
-    required = ["总体结论", "问答还原", "推荐回答", "处理与证据说明"]
+    required = ["总体结论", "面试问答", "推荐回答", "处理与证据说明"]
     missing = [heading for heading in required if heading not in text]
     problems = []
     if len(text) < 1000:

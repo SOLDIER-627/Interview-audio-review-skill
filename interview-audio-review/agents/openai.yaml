@@ -1,4 +1,4 @@
 interface:
   display_name: "面试录音复盘"
-  short_description: "本地免费复盘面试录音，清理中间文件，只保留最终报告"
-  default_prompt: "使用 $interview-audio-review 以本地、零新增费用的方式分析我的面试录音，逐题还原问答、纠正转写并生成一份复盘报告；完成后清理本次中间产物，只保留 review.md。"
+  short_description: "本地完整还原面试问答，生成详细推荐回答并输出复盘报告"
+  default_prompt: "使用 $interview-audio-review 在本地复盘我的面试录音，还原面试官问题、追问和我的回答，并生成详细的推荐回答；完成后只保留 review.md。"
