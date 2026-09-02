@@ -4,51 +4,44 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
-import platform
-import shutil
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
-
-HUB_MODEL = "mlx-community/whisper-large-v3-turbo"
-
-
-def find_local_model() -> Path:
-    """允许 Skill 被外层项目目录包装后继续找到共享本地模型。"""
-    for parent in Path(__file__).resolve().parents:
-        candidate = parent / "models" / "whisper-large-v3-turbo"
-        if (candidate / "weights.safetensors").is_file():
-            return candidate
-    return Path(__file__).resolve().parents[2] / "models" / "whisper-large-v3-turbo"
+from transcription_utils import (
+    DEFAULT_MODEL,
+    LOCAL_MODEL,
+    apple_preflight,
+    mark_suspicious,
+    postprocess_segments,
+    probe_media,
+)
 
 
-LOCAL_MODEL = find_local_model()
-DEFAULT_MODEL = str(LOCAL_MODEL) if (LOCAL_MODEL / "weights.safetensors").is_file() else HUB_MODEL
-
-
-def check_environment() -> int:
-    machine = platform.machine()
-    has_ffmpeg = shutil.which("ffmpeg") is not None
-    has_mlx_whisper = importlib.util.find_spec("mlx_whisper") is not None
-
-    print(f"系统架构: {machine}")
-    print(f"ffmpeg: {'已安装' if has_ffmpeg else '未安装'}")
-    print(f"mlx-whisper: {'已安装' if has_mlx_whisper else '未安装'}")
-
-    if machine != "arm64":
-        print("错误：默认 MLX 路线要求原生 arm64 Python。", file=sys.stderr)
-        return 2
-    if not has_ffmpeg or not has_mlx_whisper:
-        print(
-            "请先安装：brew install ffmpeg；python -m pip install mlx-whisper",
-            file=sys.stderr,
-        )
-        return 1
-    return 0
+def check_environment(model: str, input_path: Path | None = None) -> int:
+    report = apple_preflight(model, require_metal=True)
+    print(f"系统架构: {report['machine']}")
+    print(f"Python: {report['python']}")
+    print(f"ffmpeg: {'已安装' if report['ffmpeg'] else '未安装'}")
+    print(f"mlx-whisper: {'已安装' if report['mlx_whisper'] else '未安装'}")
+    print(f"Metal: {'可用' if report['metal_ok'] else '不可用'}")
+    if input_path is not None and input_path.is_file() and report["ffprobe"]:
+        try:
+            media = probe_media(input_path)
+            stream = media["audio_streams"][0]
+            print(
+                f"媒体: {media['duration_seconds'] / 60:.2f} 分钟 / "
+                f"{stream.get('codec_name')} / {stream.get('channels')} 声道"
+            )
+        except Exception as error:
+            report["errors"].append(f"媒体检查失败：{error}")
+    for warning in report["warnings"]:
+        print(f"警告：{warning}", file=sys.stderr)
+    for error in report["errors"]:
+        print(f"错误：{error}", file=sys.stderr)
+    return 1 if report["errors"] else 0
 
 
 def optional_float(value: Any) -> float | None:
@@ -64,6 +57,7 @@ def normalize_segments(result: dict[str, Any]) -> list[dict[str, Any]]:
                 "start": optional_float(segment.get("start")),
                 "end": optional_float(segment.get("end")),
                 "speaker": None,
+                "speaker_confidence": None,
                 "text": str(segment.get("text") or "").strip(),
                 "avg_logprob": optional_float(segment.get("avg_logprob")),
                 "no_speech_prob": optional_float(segment.get("no_speech_prob")),
@@ -108,11 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     if args.check:
-        return check_environment()
+        input_path = Path(args.input).expanduser().resolve() if args.input else None
+        return check_environment(args.model, input_path)
     if not args.input or not args.output:
         print("错误：必须同时提供输入文件和 --output。", file=sys.stderr)
         return 2
-    if check_environment() != 0:
+    if check_environment(args.model) != 0:
         return 1
 
     input_path = Path(args.input).expanduser().resolve()
@@ -124,6 +119,11 @@ def main() -> int:
         print(f"错误：输出已存在：{output_path}；如需覆盖请使用 --force。", file=sys.stderr)
         return 2
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        media = probe_media(input_path)
+    except Exception as error:
+        print(f"错误：媒体检查失败：{error}", file=sys.stderr)
+        return 2
 
     import mlx_whisper
 
@@ -140,7 +140,9 @@ def main() -> int:
     )
     elapsed = time.perf_counter() - started
     segments = normalize_segments(result)
-    duration = max((item["end"] or 0.0 for item in segments), default=0.0)
+    segments, suspicion_score = mark_suspicious(segments)
+    segments, dropped_segments = postprocess_segments(segments)
+    duration = media["duration_seconds"]
     realtime_factor = elapsed / duration if duration > 0 else None
 
     payload = {
@@ -155,8 +157,11 @@ def main() -> int:
             "word_timestamps": args.word_timestamps,
             "initial_prompt_used": bool(args.initial_prompt),
             "speaker_labels": False,
+            "suspicion_score": suspicion_score,
+            "dropped_segments": dropped_segments,
+            "media": media,
         },
-        "text": str(result.get("text") or "").strip(),
+        "text": "\n".join(segment["text"] for segment in segments),
         "segments": segments,
     }
     output_path.write_text(

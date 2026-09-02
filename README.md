@@ -1,8 +1,8 @@
 # 面试录音复盘 Skill
 
-一个可在本地运行的 Codex Skill，用于把面试录音整理成可核对、可练习的中文复盘报告。
+一个可在本地运行的 Codex Skill，用于把面试录音整理成可核对的中文转写稿，或进一步生成可练习的复盘报告。
 
-它会完成：语音转写 → 转写纠错 → 问题、追问与回答还原 → 逐题复盘 → 详细推荐回答 → 整场面试总结。默认只保留最终的 `review.md`，不会把录音、模型、原始转写或临时分片提交到仓库。
+它支持两种模式：纯转写输出 `transcript.md`；完整复盘输出 `review.md`。两种模式都会在验证最终产物后清理本次原始转写和临时分片。
 
 ## 适用场景
 
@@ -21,7 +21,13 @@
 interview.m4a
 ```
 
-完整流程结束后只新增：
+纯转写请求结束后只新增：
+
+```text
+interview.transcript.md
+```
+
+复盘请求结束后只新增：
 
 ```text
 interview.review.md
@@ -94,10 +100,20 @@ hf download mlx-community/whisper-large-v3-turbo \
 检查环境：
 
 ```bash
-python interview-audio-review/scripts/transcribe_local.py --check
+python interview-audio-review/scripts/preflight.py
 ```
 
-长录音的独立转写测试：
+长录音先做内置代表性片段测试：
+
+```bash
+python interview-audio-review/scripts/preflight.py "/path/to/interview.m4a"
+python interview-audio-review/scripts/transcribe_chunked.py \
+  "/path/to/interview.m4a" \
+  --language zh \
+  --preflight-sample
+```
+
+完整转写：
 
 ```bash
 python interview-audio-review/scripts/transcribe_chunked.py \
@@ -105,6 +121,8 @@ python interview-audio-review/scripts/transcribe_chunked.py \
   --language zh \
   --initial-prompt "公司名、岗位名、项目名、Kubernetes、Redis"
 ```
+
+Apple 长录音默认使用 VAD 跳过长静音，只对精确异常窗口复核一次，并在每个父分片后写入检查点。中断后用相同参数追加 `--resume <RUN_DIR>` 继续。
 
 ### 3. Intel Mac 运行
 
@@ -215,10 +233,10 @@ Copy-Item ".\interview-audio-review" `
 
 1. 检查输入、平台、依赖和可用模型；
 2. 选择 macOS MLX 或 Windows/Intel Mac 的 `faster-whisper` 路线；
-3. 在系统临时目录完成转写、纠错、角色推断和问答还原；
-4. 逐题复盘候选人的真实回答，生成不虚构经历的详细推荐回答；
-5. 验证报告结构；
-6. 清理本次音频分片、JSON 和草稿，只保留最终 `review.md`。
+3. 在系统临时目录完成 VAD、分片转写、局部复核、纠错和角色推断；
+4. 纯转写模式生成带时间戳的 `transcript.md`；复盘模式继续完成问答还原和推荐回答；
+5. 使用对应模式的结构化验证器检查最终产物；
+6. 清理本次音频分片、JSON 和草稿，只保留最终 Markdown。
 
 手工运行转写脚本只会生成标准化 JSON；完整的纠错、问答复盘、推荐答案与清理由 Codex 按 `SKILL.md` 执行。
 
@@ -249,6 +267,9 @@ Copy-Item ".\interview-audio-review" `
 - `interview-audio-review/SKILL.md`：完整工作流和安全边界；
 - `interview-audio-review/scripts/transcribe_chunked.py`：Apple 芯片长录音分片转写；
 - `interview-audio-review/scripts/transcribe_local.py`：Apple 芯片短录音转写；
+- `interview-audio-review/scripts/preflight.py`：真实检查 Metal、本地模型、磁盘和媒体；
 - `interview-audio-review/scripts/transcribe_faster_whisper.py`：Windows 和 Intel Mac 本地转写；
+- `interview-audio-review/scripts/render_transcript.py`：把标准化 JSON 渲染为转写稿草稿；
+- `interview-audio-review/scripts/validate_output.py`：结构化验证 transcript/review；
 - `interview-audio-review/scripts/cleanup_run.py`：验证最终报告后安全清理临时目录；
 - `interview-audio-review/references/report-format.md`：最终报告结构。

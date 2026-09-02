@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from transcription_utils import mark_suspicious, postprocess_segments, probe_media
+
 
 RUN_PREFIX = "interview-audio-review-"
 MARKER = ".interview-audio-review-run.json"
@@ -145,6 +147,11 @@ def main() -> int:
     if not input_path.is_file():
         print(f"错误：找不到输入文件：{input_path}", file=sys.stderr)
         return 2
+    try:
+        media = probe_media(input_path) if platform.system() == "Darwin" else None
+    except Exception as error:
+        print(f"错误：媒体检查失败：{error}", file=sys.stderr)
+        return 2
 
     model, device, compute_type, model_name, used_fallback = load_model_with_fallback(args)
     run_dir: Path | None = None
@@ -184,7 +191,6 @@ def main() -> int:
     )
 
     normalized: list[dict[str, Any]] = []
-    text_parts: list[str] = []
     for index, segment in enumerate(segment_stream):
         text = str(segment.text or "").strip()
         normalized.append(
@@ -193,14 +199,14 @@ def main() -> int:
                 "start": optional_float(segment.start),
                 "end": optional_float(segment.end),
                 "speaker": None,
+                "speaker_confidence": None,
                 "text": text,
                 "avg_logprob": optional_float(getattr(segment, "avg_logprob", None)),
                 "no_speech_prob": optional_float(getattr(segment, "no_speech_prob", None)),
             }
         )
-        if text:
-            text_parts.append(text)
-
+    normalized, suspicion_score = mark_suspicious(normalized)
+    normalized, dropped_segments = postprocess_segments(normalized)
     elapsed = time.perf_counter() - started
     duration = optional_float(getattr(info, "duration", None))
     if not duration:
@@ -226,8 +232,11 @@ def main() -> int:
             "word_timestamps": args.word_timestamps,
             "initial_prompt_used": bool(args.initial_prompt),
             "speaker_labels": False,
+            "suspicion_score": suspicion_score,
+            "dropped_segments": dropped_segments,
+            "media": media,
         },
-        "text": " ".join(text_parts),
+        "text": "\n".join(segment["text"] for segment in normalized),
         "segments": normalized,
     }
     output_path.write_text(

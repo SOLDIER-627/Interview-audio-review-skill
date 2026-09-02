@@ -9,6 +9,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from output_validation import validate_artifact
+
 
 RUN_PREFIX = "interview-audio-review-"
 MARKER = ".interview-audio-review-run.json"
@@ -18,8 +20,11 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="安全清理面试复盘的本次临时产物。")
     result.add_argument("--run-dir", required=True, help="由本 Skill 转写脚本创建的临时目录")
     group = result.add_mutually_exclusive_group(required=True)
+    group.add_argument("--artifact", help="已完成并需要保留的最终 Markdown 产物")
     group.add_argument("--review", help="已完成并需要保留的最终 review.md")
+    group.add_argument("--transcript", help="已完成并需要保留的最终 transcript.md")
     group.add_argument("--failed", action="store_true", help="本次运行失败且没有最终报告")
+    result.add_argument("--mode", choices=("transcript", "review"), help="与 --artifact 配合使用")
     return result
 
 
@@ -42,32 +47,31 @@ def validate_run_dir(run_dir: Path) -> dict[str, object]:
     return payload
 
 
-def validate_review(review: Path, run_dir: Path) -> None:
-    if not review.is_file() or review.suffix.lower() != ".md":
-        raise SystemExit("拒绝清理：最终 review.md 不存在")
-    if review == run_dir or run_dir in review.parents:
-        raise SystemExit("拒绝清理：最终 review 不能放在将被删除的临时目录中")
-    text = review.read_text(encoding="utf-8")
-    required = ["总体结论", "面试问答", "推荐回答", "处理与证据说明"]
-    missing = [heading for heading in required if heading not in text]
-    problems = []
-    if len(text) < 1000:
-        problems.append("正文少于 1000 个字符")
-    if missing:
-        problems.append("缺少章节：" + "、".join(missing))
+def validate_final_artifact(artifact: Path, run_dir: Path, mode: str) -> None:
+    if artifact == run_dir or run_dir in artifact.parents:
+        raise SystemExit("拒绝清理：最终产物不能放在将被删除的临时目录中")
+    problems = validate_artifact(artifact, mode)
     if problems:
-        raise SystemExit("拒绝清理：最终 review 内容不完整；" + "；".join(problems))
+        raise SystemExit(f"拒绝清理：最终 {mode} 内容不完整；" + "；".join(problems))
 
 
 def main() -> int:
     args = parser().parse_args()
     run_dir = Path(args.run_dir).expanduser().resolve()
     validate_run_dir(run_dir)
-    if args.review:
-        validate_review(Path(args.review).expanduser().resolve(), run_dir)
+    if args.artifact:
+        if not args.mode:
+            raise SystemExit("使用 --artifact 时必须同时指定 --mode transcript|review")
+        validate_final_artifact(Path(args.artifact).expanduser().resolve(), run_dir, args.mode)
+    elif args.mode:
+        raise SystemExit("--mode 只能与 --artifact 配合使用")
+    elif args.review:
+        validate_final_artifact(Path(args.review).expanduser().resolve(), run_dir, "review")
+    elif args.transcript:
+        validate_final_artifact(Path(args.transcript).expanduser().resolve(), run_dir, "transcript")
     shutil.rmtree(run_dir)
     print(f"已清理本次临时目录：{run_dir}")
-    print("原始录音、本地模型和最终 review.md 未被删除。")
+    print("原始录音、本地模型和最终 Markdown 产物未被删除。")
     return 0
 
 

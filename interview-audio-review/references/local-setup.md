@@ -23,8 +23,10 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 hf download mlx-community/whisper-large-v3-turbo \
   --local-dir models/whisper-large-v3-turbo
-python interview-audio-review/scripts/transcribe_local.py --check
+python interview-audio-review/scripts/preflight.py
 ```
+
+`preflight.py` 会实际导入 MLX Whisper 并执行极小的 Metal 运算，不再只检查包名是否存在。处理具体录音时把文件路径传入，还会检查时长、编码、声道、采样率、磁盘和本地模型。
 
 模型目录默认位于仓库根目录：
 
@@ -34,7 +36,18 @@ models/whisper-large-v3-turbo/
 
 脚本会从自身位置逐级向上查找该相对目录。需要使用其他目录时，通过 `--model "<模型目录>"` 显式传入；文档和代码中不得写入某个使用者的绝对路径。
 
-十五分钟以上录音使用：
+十五分钟以上录音先做代表性片段检查：
+
+```bash
+python interview-audio-review/scripts/preflight.py "/path/to/interview.m4a"
+python interview-audio-review/scripts/transcribe_chunked.py \
+  "/path/to/interview.m4a" \
+  --language zh \
+  --initial-prompt "公司名、岗位名、项目名、专业术语" \
+  --preflight-sample
+```
+
+确认样本后运行完整转写：
 
 ```bash
 python interview-audio-review/scripts/transcribe_chunked.py \
@@ -44,6 +57,14 @@ python interview-audio-review/scripts/transcribe_chunked.py \
 ```
 
 脚本会创建带安全标记的系统临时目录，输出 `RUN_DIR` 和合并 JSON 路径。最终报告完成后，由 `cleanup_run.py` 删除该目录。
+
+Apple 长录音默认启用 FFmpeg VAD，只转写语音窗口。每个十分钟父分片完成后都会写检查点；中断时使用原命令参数并追加：
+
+```bash
+--resume "/tmp/interview-audio-review-本次目录"
+```
+
+模型、提示词、分片或 VAD 参数与上次不一致时脚本会拒绝续跑，避免混合证据。
 
 十五分钟及以下可使用 `transcribe_local.py`，但输出也要放进本次临时目录。
 
@@ -102,7 +123,7 @@ python interview-audio-review\scripts\transcribe_faster_whisper.py `
 
 ## 代表性片段检查
 
-首次处理长录音时，选择包含双方对话和技术术语的代表性五分钟片段完成一次转写，检查术语识别、断句、重复文本、角色区分和本机运行情况。
+首次处理长录音时使用 `--preflight-sample` 自动选择语音密集的五分钟片段。需要固定范围时可加 `--sample-start <秒数>`。检查术语识别、断句、重复文本、角色区分和本机运行情况。
 
 处理速度明显不适合当前任务时，按顺序处理：
 
@@ -130,14 +151,17 @@ python -m pip install pyannote.audio
 
 ## 清理
 
-报告验证完成后运行：
+Transcript 模式先生成或整理最终 `<原文件名>.transcript.md`；Review 模式生成 `<原文件名>.review.md`。都先使用 `validate_output.py --mode transcript|review` 验证。
+
+最终产物验证完成后运行：
 
 macOS：
 
 ```bash
 python interview-audio-review/scripts/cleanup_run.py \
   --run-dir "/tmp/interview-audio-review-本次随机目录" \
-  --review "/path/to/interview.review.md"
+  --artifact "/path/to/interview.review.md" \
+  --mode review
 ```
 
 Windows PowerShell：
@@ -145,7 +169,8 @@ Windows PowerShell：
 ```powershell
 python interview-audio-review\scripts\cleanup_run.py `
   --run-dir "$env:TEMP\interview-audio-review-本次随机目录" `
-  --review "D:\recordings\interview.review.md"
+  --artifact "D:\recordings\interview.review.md" `
+  --mode review
 ```
 
 若失败且没有报告，改用 `--failed`。清理脚本只接受系统临时目录中、名称和标记都符合规则的本次目录，不删除原录音、模型、最终报告或其他用户文件。
