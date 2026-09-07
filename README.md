@@ -10,6 +10,7 @@
 - 技术面、项目面、业务面、HR 面；
 - 中文为主、夹杂英文技术术语的双人面试；
 - 已有录音、视频或文字转写稿的问答整理。
+- 搭配用户指定的简历、岗位说明、实习或项目资料，生成更贴合真实经历的推荐回答。
 
 不适用于未经参与者授权的秘密录音、声纹身份确认，或要求虚构候选人经历的场景。
 
@@ -37,6 +38,7 @@ interview.review.md
 
 - 简洁的来源和证据说明；
 - 带时间戳的问题、追问和候选人真实回答；
+- 候选人的正式反问及面试官回答，并按实际发生顺序保留；
 - 每道题最有用的改进建议；
 - 忠于真实经历、详细且分点的推荐回答；
 - 需要候选人如实补充的信息。
@@ -111,6 +113,14 @@ python interview-audio-review/scripts/transcribe_chunked.py \
   "/path/to/interview.m4a" \
   --language zh \
   --preflight-sample
+```
+
+核对样本后清理它自己的 `RUN_DIR`：
+
+```bash
+python interview-audio-review/scripts/cleanup_run.py \
+  --run-dir "/tmp/interview-audio-review-样本目录" \
+  --sample
 ```
 
 完整转写：
@@ -207,6 +217,8 @@ GPU 配置以 [`faster-whisper` 官方说明](https://github.com/SYSTRAN/faster-
 Skill 目录：<仓库路径>/interview-audio-review
 录音：<录音文件路径>
 要求本地处理，完成后只保留 review.md。
+背景材料：<简历、实习或项目文件/目录路径>
+候选人的反问和面试官回答也要完整保留。
 ```
 
 也可以安装到个人 Skill 目录。
@@ -231,10 +243,10 @@ Copy-Item ".\interview-audio-review" `
 
 ## Skill 的完整处理流程
 
-1. 检查输入、平台、依赖和可用模型；
+1. 检查输入、背景材料、平台、依赖和可用模型；
 2. 选择 macOS MLX 或 Windows/Intel Mac 的 `faster-whisper` 路线；
-3. 在系统临时目录完成 VAD、分片转写、局部复核、纠错和角色推断；
-4. 纯转写模式生成带时间戳的 `transcript.md`；复盘模式继续完成问答还原和推荐回答；
+3. 在系统临时目录完成 VAD、分片转写、局部复核、纠错、正式面试边界识别和角色推断；
+4. 纯转写模式生成带时间戳的 `transcript.md`；复盘模式继续按时间还原面试官 Q 问答、候选人 C 反问和推荐回答；
 5. 使用对应模式的结构化验证器检查最终产物；
 6. 清理本次音频分片、JSON 和草稿，只保留最终 Markdown。
 
@@ -252,6 +264,7 @@ Copy-Item ".\interview-audio-review" `
 - 原始录音不会被修改或删除；
 - 听不清的内容会标记为 `[听不清]`、`[多人重叠]` 或候选词，不会静默补写；
 - 推荐回答只能基于录音和用户材料中的真实经历，缺失信息用占位符提示补充；
+- 背景材料只用于事实核对、改进建议和推荐回答，不会改写候选人的当场回答；
 - 使用录音前请确认符合当地法律、公司规定并获得必要授权。
 
 ## 不要提交到 GitHub

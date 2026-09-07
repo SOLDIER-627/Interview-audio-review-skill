@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""在验证最终 review 后，安全删除一次面试复盘的临时目录。"""
+"""验证最终产物或样本类型后，安全删除一次面试处理的临时目录。"""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ def parser() -> argparse.ArgumentParser:
     group.add_argument("--artifact", help="已完成并需要保留的最终 Markdown 产物")
     group.add_argument("--review", help="已完成并需要保留的最终 review.md")
     group.add_argument("--transcript", help="已完成并需要保留的最终 transcript.md")
+    group.add_argument("--sample", action="store_true", help="已核对并不再需要的代表性样本运行")
     group.add_argument("--failed", action="store_true", help="本次运行失败且没有最终报告")
     result.add_argument("--mode", choices=("transcript", "review"), help="与 --artifact 配合使用")
     return result
@@ -58,7 +59,7 @@ def validate_final_artifact(artifact: Path, run_dir: Path, mode: str) -> None:
 def main() -> int:
     args = parser().parse_args()
     run_dir = Path(args.run_dir).expanduser().resolve()
-    validate_run_dir(run_dir)
+    marker = validate_run_dir(run_dir)
     if args.artifact:
         if not args.mode:
             raise SystemExit("使用 --artifact 时必须同时指定 --mode transcript|review")
@@ -69,6 +70,8 @@ def main() -> int:
         validate_final_artifact(Path(args.review).expanduser().resolve(), run_dir, "review")
     elif args.transcript:
         validate_final_artifact(Path(args.transcript).expanduser().resolve(), run_dir, "transcript")
+    elif args.sample and marker.get("mode") != "sample":
+        raise SystemExit("拒绝清理：--sample 只能用于代表性样本运行目录")
     shutil.rmtree(run_dir)
     print(f"已清理本次临时目录：{run_dir}")
     print("原始录音、本地模型和最终 Markdown 产物未被删除。")

@@ -28,6 +28,8 @@ python interview-audio-review/scripts/preflight.py
 
 `preflight.py` 会实际导入 MLX Whisper 并执行极小的 Metal 运算，不再只检查包名是否存在。处理具体录音时把文件路径传入，还会检查时长、编码、声道、采样率、磁盘和本地模型。
 
+如果 Apple 芯片主机在沙箱或无头会话中报告 Metal 不可用，先在允许访问本机 GPU 的执行环境重跑相同预检。不要把这种隔离环境错误误判成机器没有本地转写能力，也不要因此默认上传录音。
+
 模型目录默认位于仓库根目录：
 
 ```text
@@ -46,6 +48,16 @@ python interview-audio-review/scripts/transcribe_chunked.py \
   --initial-prompt "公司名、岗位名、项目名、专业术语" \
   --preflight-sample
 ```
+
+核对样本后先清理该独立运行目录：
+
+```bash
+python interview-audio-review/scripts/cleanup_run.py \
+  --run-dir "/tmp/interview-audio-review-样本目录" \
+  --sample
+```
+
+样本运行和完整转写使用不同的临时目录；样本目录不能用于 `--resume`。
 
 确认样本后运行完整转写：
 

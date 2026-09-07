@@ -457,9 +457,9 @@ def run_sample(
     }
     output = run_dir / "preflight-sample.json"
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"OUTPUT={output}")
-    print(f"代表性范围：{start:.2f}–{end:.2f} 秒")
-    print(f"可疑局部窗口：{len(parent['warnings'])}")
+    print(f"OUTPUT={output}", flush=True)
+    print(f"代表性范围：{start:.2f}–{end:.2f} 秒", flush=True)
+    print(f"可疑局部窗口：{len(parent['warnings'])}", flush=True)
     return 0
 
 
@@ -475,11 +475,11 @@ def main() -> int:
         raise SystemExit("运行前检查失败：" + "；".join(report["errors"]))
     media = probe_media(source)
     run_dir, _ = create_run_dir(source, args)
-    print(f"RUN_DIR={run_dir}")
+    print(f"RUN_DIR={run_dir}", flush=True)
     if args.preflight_sample:
-        print("这是代表性样本运行；核对后按成功或失败流程清理本次目录。")
+        print("这是代表性样本运行；核对后使用 cleanup_run.py --sample 清理本次目录。", flush=True)
     else:
-        print("如运行中断，可使用同样参数加 --resume 继续。")
+        print("如运行中断，可使用同样参数加 --resume 继续。", flush=True)
 
     silences, speech = load_speech_map(source, media["duration_seconds"], args)
     (run_dir / "vad-map.json").write_text(
@@ -513,10 +513,13 @@ def main() -> int:
         parent_path = run_dir / f"parent-p{index:03d}.json"
         if args.resume and parent_path.is_file():
             parent = json.loads(parent_path.read_text(encoding="utf-8"))
-            print(f"已恢复父分片 {index + 1}/{len(parent_ranges)}")
+            print(f"已恢复父分片 {index + 1}/{len(parent_ranges)}", flush=True)
         else:
             parent = transcribe_parent(mlx_whisper, source, run_dir, start, end, index, speech, silences, args)
-            print(f"已完成父分片 {index + 1}/{len(parent_ranges)}；局部复核 {len(parent['warnings'])} 个")
+            print(
+                f"已完成父分片 {index + 1}/{len(parent_ranges)}；局部复核 {len(parent['warnings'])} 个",
+                flush=True,
+            )
         parents.append(parent)
         completed.append(index)
         write_checkpoint(run_dir, completed, len(parent_ranges))
@@ -552,10 +555,16 @@ def main() -> int:
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"OUTPUT={output}")
-    print(f"音频时长：{media['duration_seconds'] / 60:.2f} 分钟")
-    print(f"累计转写耗时：{processing_elapsed / 60:.2f} 分钟；本次运行：{wall_elapsed / 60:.2f} 分钟")
-    print(f"局部复核：{len(warnings)}；仍不可靠：{sum(bool(item['unresolved']) for item in warnings)}")
+    print(f"OUTPUT={output}", flush=True)
+    print(f"音频时长：{media['duration_seconds'] / 60:.2f} 分钟", flush=True)
+    print(
+        f"累计转写耗时：{processing_elapsed / 60:.2f} 分钟；本次运行：{wall_elapsed / 60:.2f} 分钟",
+        flush=True,
+    )
+    print(
+        f"局部复核：{len(warnings)}；仍不可靠：{sum(bool(item['unresolved']) for item in warnings)}",
+        flush=True,
+    )
     return 0
 
 

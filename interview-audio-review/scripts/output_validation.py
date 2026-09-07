@@ -9,8 +9,14 @@ from pathlib import Path
 
 TIMESTAMP_RANGE = r"\[\d{2}:\d{2}:\d{2}[–-]\d{2}:\d{2}:\d{2}\]"
 QUESTION_HEADING = re.compile(rf"^##\s+Q\d+(?:\.\d+)*\..+{TIMESTAMP_RANGE}\s*$", re.MULTILINE)
+INTERACTION_HEADING = re.compile(
+    rf"^##\s+(?P<kind>[QC])\d+(?:\.\d+)*\..+{TIMESTAMP_RANGE}\s*$", re.MULTILINE
+)
 TRANSCRIPT_LINE = re.compile(rf"^{TIMESTAMP_RANGE}(?:\s+\*\*[^*]+\*\*)?\s+.+$", re.MULTILINE)
-SECTION_HEADING = re.compile(r"^\*\*(面试官问题|我的回答|改进建议|推荐回答)\*\*\s*$", re.MULTILINE)
+SECTION_HEADING = re.compile(
+    r"^\*\*(面试官问题|我的回答|改进建议|推荐回答|候选人问题|面试官回答|反问建议|推荐问法)\*\*\s*$",
+    re.MULTILINE,
+)
 
 
 def _nonempty_after(block: str, marker: str, next_markers: list[str]) -> bool:
@@ -24,31 +30,49 @@ def _nonempty_after(block: str, marker: str, next_markers: list[str]) -> bool:
     return bool(block[start:end].strip())
 
 
+def _timestamp_start_seconds(heading: str) -> int:
+    match = re.search(r"\[(\d{2}):(\d{2}):(\d{2})[–-]", heading)
+    if not match:
+        raise ValueError(f"标题缺少开始时间戳：{heading}")
+    hours, minutes, seconds = (int(item) for item in match.groups())
+    return hours * 3600 + minutes * 60 + seconds
+
+
 def validate_review_text(text: str) -> list[str]:
     problems: list[str] = []
     if len(text.strip()) < 1000:
         problems.append("正文少于 1000 个字符")
     for heading in ("处理与证据说明", "总体结论", "面试问答"):
-        if not re.search(rf"^#+\s+{re.escape(heading)}\s*$", text, re.MULTILINE):
+        if not re.search(rf"^#+\s+(?:\d+\.\s+)?{re.escape(heading)}\s*$", text, re.MULTILINE):
             problems.append(f"缺少章节：{heading}")
-    matches = list(QUESTION_HEADING.finditer(text))
-    if not matches:
+    question_matches = list(QUESTION_HEADING.finditer(text))
+    if not question_matches:
         problems.append("没有带时间戳的正式问题")
         return problems
-    expected = ["面试官问题", "我的回答", "改进建议", "推荐回答"]
-    for index, match in enumerate(matches):
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+    interactions = list(INTERACTION_HEADING.finditer(text))
+    starts = [_timestamp_start_seconds(match.group(0)) for match in interactions]
+    if any(current < previous for previous, current in zip(starts, starts[1:])):
+        problems.append("Q/C 问答未按时间顺序排列")
+    for index, match in enumerate(interactions):
+        end = interactions[index + 1].start() if index + 1 < len(interactions) else len(text)
         block = text[match.start():end]
         title = match.group(0).strip()
+        kind = match.group("kind")
+        expected = (
+            ["面试官问题", "我的回答", "改进建议", "推荐回答"]
+            if kind == "Q"
+            else ["候选人问题", "面试官回答", "反问建议", "推荐问法"]
+        )
         headings = SECTION_HEADING.findall(block)
-        if headings[:4] != expected:
-            problems.append(f"{title} 的四个必需小节缺失或顺序错误")
+        if headings[: len(expected)] != expected:
+            label = "正式问题" if kind == "Q" else "候选人反问"
+            problems.append(f"{title} 的{label}必需小节缺失或顺序错误")
             continue
         markers = [f"**{item}**" for item in expected]
         for marker_index, marker in enumerate(markers):
             if not _nonempty_after(block, marker, markers[marker_index + 1:]):
                 problems.append(f"{title} 的 {marker.strip('*')} 为空")
-        recommendation_start = block.find("**推荐回答**")
+        recommendation_start = block.find("**推荐回答**") if kind == "Q" else -1
         if recommendation_start >= 0:
             recommendation = block[recommendation_start + len("**推荐回答**"):]
             if not re.search(r"^\s*(?:1\.|[-*])\s+\S", recommendation, re.MULTILINE):
